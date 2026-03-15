@@ -1,359 +1,347 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, addDoc, onSnapshot, query } from 'firebase/firestore';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { Timer, Trophy, Calculator, Activity, Users, Play, Square, RotateCcw, Cloud, RefreshCw, Check } from 'lucide-react';
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>모녀 찰떡 다이어트 🚲</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Prop-Types (Recharts dependency) -->
+    <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+    <!-- Recharts -->
+    <script src="https://unpkg.com/recharts@2.12.2/umd/Recharts.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700;900&display=swap');
+        body { font-family: 'Pretendard', sans-serif; overflow-x: hidden; -webkit-tap-highlight-color: transparent; }
+        .animate-fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        input[type="number"]::-webkit-inner-spin-button, 
+        input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    </style>
+</head>
+<body class="bg-slate-50">
+    <div id="root"></div>
 
-// Firebase 설정 (환경 변수 활용)
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'diet-challenge-app';
+    <!-- Firebase SDKs -->
+    <script type="importmap">
+    {
+      "imports": {
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"
+      }
+    }
+    </script>
 
-const App = () => {
-  const [user, setUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [rawLogs, setRawLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
+    <script type="text/babel" data-type="module">
+        import { initializeApp } from "firebase/app";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
+        import { getFirestore, collection, addDoc, onSnapshot } from "firebase/firestore";
 
-  // 타이머 관련 상태
-  const [timerActive, setTimerActive] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(1800);
-  const [cycleTime, setCycleTime] = useState(300);
-  const [isResting, setIsResting] = useState(false);
-  const [totalSecondsElapsed, setTotalSecondsElapsed] = useState(0);
+        const { useState, useEffect, useMemo } = React;
+        const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } = Recharts;
 
-  // 상수
-  const MET_EXERCISE = 8.0;
-  const MET_REST = 1.0;
-  const KCAL_PER_KG = 7700;
-
-  // 1. Firebase 인증 처리 (Rule 3 준수)
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
+        // 1. Firebase 설정값 안전하게 가져오기
+        let firebaseConfig;
+        try {
+            firebaseConfig = (typeof __firebase_config !== 'undefined' && __firebase_config) 
+                ? JSON.parse(__firebase_config) 
+                : {
+                    apiKey: "AIzaSyAs-PlaceholderKey12345", 
+                    authDomain: "diet-challenge-app.firebaseapp.com",
+                    projectId: "diet-challenge-app",
+                    storageBucket: "diet-challenge-app.appspot.com",
+                    messagingSenderId: "1234567890",
+                    appId: "1:1234567890:web:abc123def456"
+                };
+        } catch (e) {
+            console.error("Firebase 설정 파싱 오류:", e);
         }
-      } catch (err) {
-        console.error("인증 오류:", err);
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-    });
-    return () => unsubscribe();
-  }, []);
 
-  // 2. Firestore 데이터 실시간 동기화 (Rule 1, 2 준수)
-  useEffect(() => {
-    if (!user) return;
+        const currentAppId = typeof __app_id !== 'undefined' ? __app_id : "diet-challenge-app";
 
-    // 공용 데이터 경로: /artifacts/{appId}/public/data/diet_logs
-    const logsRef = collection(db, 'artifacts', appId, 'public', 'data', 'diet_logs');
-    
-    // 복합 쿼리 없이 전체 데이터를 가져와 클라이언트에서 처리 (Rule 2)
-    const unsubscribe = onSnapshot(logsRef, 
-      (snapshot) => {
-        const data = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        // 시간순 정렬
-        const sortedData = data.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-        setRawLogs(sortedData);
-        setLoading(false);
-      },
-      (error) => {
-        console.error("데이터 불러오기 오류:", error);
-        setLoading(false);
-      }
-    );
+        // 2. Firebase 초기화
+        const firebaseApp = initializeApp(firebaseConfig);
+        const auth = getAuth(firebaseApp);
+        const db = getFirestore(firebaseApp);
 
-    return () => unsubscribe();
-  }, [user]);
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [rawLogs, setRawLogs] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [errorMsg, setErrorMsg] = useState(null);
 
-  // 데이터 가공
-  const userData = useMemo(() => {
-    const momLogs = rawLogs.filter(l => l.userKey === 'mom');
-    const daughterLogs = rawLogs.filter(l => l.userKey === 'daughter');
+            // 타이머 상태
+            const [timerActive, setTimerActive] = useState(false);
+            const [timeLeft, setTimeLeft] = useState(1800);
+            const [cycleTime, setCycleTime] = useState(300);
+            const [isResting, setIsResting] = useState(false);
+            const [totalSecondsElapsed, setTotalSecondsElapsed] = useState(0);
 
-    const getLatestWeight = (logs, defaultWeight) => 
-      logs.length > 0 ? logs[logs.length - 1].weight : defaultWeight;
+            const MET_EXERCISE = 8.0;
 
-    return {
-      mom: {
-        name: '엄마',
-        weight: 74,
-        targetWeight: 69,
-        currentWeight: getLatestWeight(momLogs, 74),
-        logs: momLogs,
-        totalBurned: momLogs.reduce((acc, l) => acc + (l.burnedKcal || 0), 0)
-      },
-      daughter: {
-        name: '딸',
-        weight: 60,
-        targetWeight: 55,
-        currentWeight: getLatestWeight(daughterLogs, 60),
-        logs: daughterLogs,
-        totalBurned: daughterLogs.reduce((acc, l) => acc + (l.burnedKcal || 0), 0)
-      }
-    };
-  }, [rawLogs]);
+            // 필수 규칙 3: 인증 처리를 가장 먼저 수행
+            useEffect(() => {
+                const initAuth = async () => {
+                    try {
+                        await signInAnonymously(auth);
+                    } catch (err) {
+                        console.error("인증 실패:", err);
+                        setErrorMsg("인증에 실패했습니다. 설정을 확인해주세요.");
+                    }
+                };
+                initAuth();
+                const unsubscribe = onAuthStateChanged(auth, (u) => {
+                    setUser(u);
+                    if (!u) setLoading(false);
+                });
+                return () => unsubscribe();
+            }, []);
 
-  // 타이머 로직
-  useEffect(() => {
-    let interval = null;
-    if (timerActive && timeLeft > 0) {
-      interval = setInterval(() => {
-        setTimeLeft(prev => prev - 1);
-        setCycleTime(prev => {
-          if (prev <= 1) {
-            const nextIsResting = !isResting;
-            setIsResting(nextIsResting);
-            return nextIsResting ? 60 : 300;
-          }
-          return prev - 1;
-        });
-        setTotalSecondsElapsed(prev => prev + 1);
-      }, 1000);
-    } else {
-      clearInterval(interval);
-    }
-    return () => clearInterval(interval);
-  }, [timerActive, timeLeft, isResting]);
+            // 필수 규칙 1 & 2: 인증 완료 후 데이터 수신
+            useEffect(() => {
+                if (!user) return; // 인증되지 않았으면 실행 중단
 
-  const calculateBurnedKcal = (weight, seconds) => {
-    const mins = seconds / 60;
-    const exerciseMins = Math.min(mins, 25);
-    const restMins = Math.max(0, mins - exerciseMins);
-    return Math.round((MET_EXERCISE * 3.5 * weight * exerciseMins / 200) + (MET_REST * 3.5 * weight * restMins / 200));
-  };
+                const logsPath = ['artifacts', currentAppId, 'public', 'data', 'diet_logs'];
+                const logsRef = collection(db, ...logsPath);
+                
+                const unsubscribe = onSnapshot(logsRef, 
+                    (snapshot) => {
+                        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                        setRawLogs(data.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0)));
+                        setLoading(false);
+                        setErrorMsg(null);
+                    },
+                    (err) => {
+                        console.error("Firestore 수신 오류:", err);
+                        setErrorMsg("데이터를 가져올 권한이 없거나 오류가 발생했습니다.");
+                        setLoading(false);
+                    }
+                );
 
-  const saveLog = async (userKey, measuredWeight) => {
-    if (!user) return;
-    const weight = parseFloat(measuredWeight);
-    if (isNaN(weight)) return;
+                return () => unsubscribe();
+            }, [user]);
 
-    const burnedKcal = calculateBurnedKcal(userData[userKey].weight, 1800);
-    
-    try {
-      const logsRef = collection(db, 'artifacts', appId, 'public', 'data', 'diet_logs');
-      await addDoc(logsRef, {
-        userKey,
-        weight,
-        burnedKcal,
-        date: new Date().toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }),
-        timestamp: Date.now(),
-        creator: user.uid
-      });
-    } catch (err) {
-      console.error("저장 오류:", err);
-    }
-  };
+            // 타이머 로직
+            useEffect(() => {
+                let interval = null;
+                if (timerActive && timeLeft > 0) {
+                    interval = setInterval(() => {
+                        setTimeLeft(prev => prev - 1);
+                        setCycleTime(prev => {
+                            if (prev <= 1) {
+                                const nextIsResting = !isResting;
+                                setIsResting(nextIsResting);
+                                return nextIsResting ? 60 : 300;
+                            }
+                            return prev - 1;
+                        });
+                        setTotalSecondsElapsed(prev => prev + 1);
+                    }, 1000);
+                } else { clearInterval(interval); }
+                return () => clearInterval(interval);
+            }, [timerActive, timeLeft, isResting]);
 
-  const formatTime = (s) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+            // 아이콘 업데이트
+            useEffect(() => {
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }, [activeTab, loading, errorMsg]);
 
-  const getProgress = (user) => {
-    const totalToLose = user.weight - user.targetWeight;
-    const lostSoFar = user.weight - user.currentWeight;
-    return Math.min(Math.max((lostSoFar / totalToLose) * 100, 0), 100).toFixed(1);
-  };
+            const userData = useMemo(() => {
+                const momLogs = rawLogs.filter(l => l.userKey === 'mom');
+                const daughterLogs = rawLogs.filter(l => l.userKey === 'daughter');
+                const getW = (logs, def) => logs.length > 0 ? logs[logs.length-1].weight : def;
+                return {
+                    mom: { name: '엄마', weight: 74, target: 69, current: getW(momLogs, 74), logs: momLogs, burned: momLogs.reduce((a,c)=>a+(c.burnedKcal||0),0) },
+                    daughter: { name: '딸', weight: 60, target: 55, current: getW(daughterLogs, 60), logs: daughterLogs, burned: daughterLogs.reduce((a,c)=>a+(c.burnedKcal||0),0) }
+                };
+            }, [rawLogs]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-        <RefreshCw className="animate-spin text-indigo-600 mb-4" size={40} />
-        <p className="text-gray-500 font-bold">기록을 불러오고 있어요...</p>
-      </div>
-    );
-  }
+            const saveLog = async (key, val) => {
+                const weight = parseFloat(val);
+                if (isNaN(weight) || !user) return;
+                
+                const burnedKcal = Math.round((MET_EXERCISE * 3.5 * userData[key].weight * 25 / 200));
+                
+                try {
+                    const logsRef = collection(db, 'artifacts', currentAppId, 'public', 'data', 'diet_logs');
+                    await addDoc(logsRef, {
+                        userKey: key, 
+                        weight, 
+                        burnedKcal, 
+                        timestamp: Date.now(),
+                        date: new Date().toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }),
+                        uid: user.uid
+                    });
+                } catch (e) { 
+                    console.error("저장 실패:", e); 
+                    alert("기록 저장 권한이 없거나 오류가 발생했습니다.");
+                }
+            };
 
-  return (
-    <div className="min-h-screen bg-slate-50 pb-24 font-sans text-gray-900">
-      <header className="bg-white px-6 pt-10 pb-6 rounded-b-[40px] shadow-sm flex justify-between items-start">
-        <div>
-          <h1 className="text-2xl font-black text-gray-900 mb-1">모녀 찰떡 다이어트 🚲</h1>
-          <p className="text-gray-500 text-sm">함께라서 더 즐거운 5kg 감량!</p>
-        </div>
-        <div className="bg-green-50 text-green-600 px-3 py-1 rounded-full flex items-center gap-1 text-xs font-bold shadow-sm">
-          <Cloud size={14} /> 클라우드 연결됨
-        </div>
-      </header>
+            const formatTime = (s) => `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`;
 
-      <main className="px-5 py-6">
-        {activeTab === 'dashboard' && (
-          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {['mom', 'daughter'].map(key => {
-              const data = userData[key];
-              const progress = getProgress(data);
-              return (
-                <div key={key} className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-12 h-12 rounded-full flex items-center justify-center ${key === 'mom' ? 'bg-orange-100 text-orange-600' : 'bg-pink-100 text-pink-600'}`}>
-                        <Users size={24} />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-lg">{data.name}</h3>
-                        <p className="text-xs text-gray-500">목표: {data.targetWeight}kg</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-2xl font-black text-gray-900">{data.currentWeight}</span>
-                      <span className="text-gray-500 ml-1">kg</span>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-gray-600">목표 달성률</span>
-                      <span className="text-indigo-600 font-bold">{progress}%</span>
-                    </div>
-                    <div className="w-full bg-gray-100 h-3 rounded-full overflow-hidden">
-                      <div className={`h-full transition-all duration-1000 ${key === 'mom' ? 'bg-orange-400' : 'bg-pink-400'}`} style={{ width: `${progress}%` }} />
-                    </div>
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 gap-2">
-                    <div className="bg-gray-50 p-3 rounded-2xl">
-                      <p className="text-[10px] text-gray-400 mb-1">누적 소모</p>
-                      <p className="font-bold text-sm">{data.totalBurned} kcal</p>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-2xl">
-                      <p className="text-[10px] text-gray-400 mb-1">성실도</p>
-                      <p className="font-bold text-sm">{data.logs.length}일째</p>
-                    </div>
-                  </div>
+            if (loading && !errorMsg) return (
+                <div className="min-h-screen flex flex-col items-center justify-center bg-white">
+                    <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <p className="text-gray-400 font-bold text-sm">연결 중...</p>
                 </div>
-              );
-            })}
-            
-            <div className="bg-indigo-600 text-white p-6 rounded-[32px] shadow-lg flex justify-between items-center">
-              <div>
-                <h3 className="text-xl font-bold">싸이클 챌린지</h3>
-                <p className="text-indigo-100 text-xs mt-1">5분 열정 + 1분 휴식 (30분)</p>
-              </div>
-              <button onClick={() => setActiveTab('timer')} className="bg-white text-indigo-600 px-6 py-3 rounded-2xl font-black shadow-md active:scale-95 transition-transform">
-                시작!
-              </button>
-            </div>
-          </div>
-        )}
+            );
 
-        {activeTab === 'timer' && (
-          <div className="flex flex-col items-center py-4 animate-in zoom-in-95 duration-300">
-            <div className="bg-white w-full rounded-[40px] p-8 shadow-xl text-center border border-gray-100 relative overflow-hidden">
-              <span className={`inline-block px-4 py-1 rounded-full text-sm font-bold mb-6 ${isResting ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                {isResting ? '꿀맛 휴식 중...' : '열심히 달리는 중!'}
-              </span>
-              
-              <div className="relative mb-8">
-                <svg className="w-64 h-64 mx-auto">
-                  <circle className="text-gray-100" strokeWidth="10" stroke="currentColor" fill="transparent" r="110" cx="128" cy="128" />
-                  <circle 
-                    className={`${isResting ? 'text-green-500' : 'text-indigo-600'} transition-all duration-1000`} 
-                    strokeWidth="10" strokeDasharray={2 * Math.PI * 110}
-                    strokeDashoffset={2 * Math.PI * 110 * (1 - (isResting ? cycleTime/60 : cycleTime/300))}
-                    strokeLinecap="round" stroke="currentColor" fill="transparent" r="110" cx="128" cy="128" transform="rotate(-90 128 128)"
-                  />
-                </svg>
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                  <p className="text-5xl font-black text-gray-900 tabular-nums">{formatTime(cycleTime)}</p>
-                  <p className="text-gray-400 mt-2 font-medium">남은 전체 {formatTime(timeLeft)}</p>
+            return (
+                <div className="max-w-md mx-auto min-h-screen pb-24 relative bg-slate-50 shadow-2xl shadow-gray-200">
+                    <header className="bg-white p-6 pt-12 rounded-b-[40px] shadow-sm flex justify-between items-center">
+                        <div>
+                            <h1 className="text-2xl font-black text-gray-900 tracking-tight">모녀 찰떡 다이어트 🚲</h1>
+                            <p className="text-xs text-gray-400 font-medium">함께라서 즐거운 한 달 5kg 감량!</p>
+                        </div>
+                        <div className={`px-3 py-1.5 rounded-full text-[10px] font-black border flex items-center gap-1 ${user ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
+                             {user ? 'CLOUD SYNC' : 'OFFLINE'}
+                        </div>
+                    </header>
+
+                    <main className="p-5 animate-fade-in">
+                        {errorMsg && (
+                            <div className="bg-red-50 text-red-500 p-4 rounded-2xl mb-4 font-bold text-sm border border-red-100">
+                                {errorMsg}
+                            </div>
+                        )}
+
+                        {activeTab === 'dashboard' && (
+                            <div className="space-y-4">
+                                {['mom', 'daughter'].map(k => {
+                                    const d = userData[k];
+                                    const prog = Math.min(Math.max(((d.weight - d.current) / (d.weight - d.target)) * 100, 0), 100).toFixed(1);
+                                    return (
+                                        <div key={k} className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100/50">
+                                            <div className="flex justify-between items-center mb-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner ${k==='mom'?'bg-orange-100 text-orange-600':'bg-pink-100 text-pink-600'}`}>
+                                                        <span className="font-black text-lg">{d.name[0]}</span>
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-black text-gray-800 text-lg">{d.name}</div>
+                                                        <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Target: {d.target}kg</div>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="text-2xl font-black text-gray-900">{d.current}<span className="text-sm font-bold text-gray-400 ml-0.5">kg</span></div>
+                                                </div>
+                                            </div>
+                                            <div className="w-full bg-gray-100 h-3 rounded-full overflow-hidden mb-2">
+                                                <div className={`h-full transition-all duration-1000 ease-out rounded-full ${k === 'mom' ? 'bg-orange-400' : 'bg-pink-400'}`} style={{width: `${prog}%`}}></div>
+                                            </div>
+                                            <div className="flex justify-between text-[11px] text-gray-500 font-black">
+                                                <span>남은 감량: {(d.current - d.target).toFixed(1)}kg</span>
+                                                <span className="text-indigo-600">{prog}%</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                <div className="bg-gradient-to-br from-indigo-600 to-indigo-700 p-7 rounded-[35px] text-white flex justify-between items-center shadow-xl relative overflow-hidden">
+                                    <div className="relative z-10">
+                                        <div className="text-lg font-black mb-1">오늘의 집중 싸이클</div>
+                                        <div className="text-[11px] font-medium opacity-90">5분 열정 주행 + 1분 꿀맛 휴식</div>
+                                    </div>
+                                    <button onClick={()=>setActiveTab('timer')} className="relative z-10 bg-white text-indigo-600 px-7 py-3 rounded-2xl font-black text-sm active:scale-95 transition-all shadow-lg">
+                                        시작!
+                                    </button>
+                                    <div className="absolute -right-6 -bottom-6 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'timer' && (
+                            <div className="bg-white p-10 rounded-[45px] shadow-sm text-center border border-gray-100 animate-fade-in">
+                                <div className={`inline-block px-5 py-1.5 rounded-full text-xs font-black mb-8 shadow-sm ${isResting ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600 animate-pulse'}`}>
+                                    {isResting ? '꿀맛 휴식 중 🍵' : '힘차게 주행 중 🚲'}
+                                </div>
+                                <div className="text-7xl font-black mb-4 text-gray-900 tracking-tighter tabular-nums">{formatTime(cycleTime)}</div>
+                                <div className="text-sm font-bold text-gray-300 mb-12">전체 운동 종료까지 {formatTime(timeLeft)}</div>
+                                <div className="flex justify-center gap-6">
+                                    <button onClick={()=>setTimerActive(!timerActive)} className={`w-24 h-24 rounded-full text-white font-black text-xl flex items-center justify-center shadow-xl active:scale-90 transition-all ${timerActive?'bg-orange-500':'bg-indigo-600'}`}>
+                                        {timerActive ? '정지' : '시작'}
+                                    </button>
+                                    <button onClick={()=>{setTimerActive(false); setTimeLeft(1800); setCycleTime(300); setIsResting(false);}} className="w-24 h-24 rounded-full bg-slate-100 text-gray-400 font-black text-sm active:scale-90 transition-all">
+                                        리셋
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'logs' && (
+                            <div className="space-y-4 animate-fade-in">
+                                <div className="bg-white p-7 rounded-[35px] shadow-sm border border-gray-100">
+                                    <h3 className="font-black text-gray-900 text-lg mb-6 flex items-center gap-2">
+                                        오늘의 몸무게 기록
+                                    </h3>
+                                    {['mom', 'daughter'].map(k => (
+                                        <div key={k} className={`mb-6 ${k==='daughter'?'border-t border-gray-50 pt-6':''}`}>
+                                            <div className="text-[11px] text-gray-400 font-black mb-2 uppercase tracking-widest">{userData[k].name}'s Weight</div>
+                                            <div className="flex gap-3">
+                                                <input id={`in-${k}`} type="number" step="0.1" className="bg-slate-50 flex-1 p-5 rounded-2xl border-0 text-xl font-black focus:ring-4 focus:ring-indigo-100 outline-none transition-all" placeholder="00.0" />
+                                                <button onClick={()=>{const i=document.getElementById(`in-${k}`); if(i.value){saveLog(k,i.value); i.value='';}}} className={`px-8 rounded-2xl text-white font-black shadow-lg active:scale-95 transition-all ${k==='mom'?'bg-orange-500':'bg-pink-500'}`}>저장</button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="bg-white p-7 rounded-[35px] shadow-sm border border-gray-100 h-72">
+                                    <h3 className="font-black text-gray-800 mb-6 text-sm flex justify-between items-center">
+                                        <span>모녀 체중 추이</span>
+                                        <div className="flex gap-3 text-[10px]">
+                                            <span className="flex items-center gap-1"><span className="w-2 h-2 bg-orange-400 rounded-full"></span>엄마</span>
+                                            <span className="flex items-center gap-1"><span className="w-2 h-2 bg-pink-400 rounded-full"></span>딸</span>
+                                        </div>
+                                    </h3>
+                                    <ResponsiveContainer width="100%" height="80%">
+                                        <LineChart data={
+                                            Array.from(new Set(rawLogs.map(l => l.date))).map(date => ({
+                                                name: date,
+                                                mom: rawLogs.find(l => l.date === date && l.userKey === 'mom')?.weight,
+                                                daughter: rawLogs.find(l => l.date === date && l.userKey === 'daughter')?.weight,
+                                            }))
+                                        }>
+                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f8fafc" />
+                                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#cbd5e1', fontWeight: 700}} />
+                                            <YAxis hide domain={['dataMin - 1', 'dataMax + 1']} />
+                                            <Tooltip contentStyle={{borderRadius: '20px', border: 'none', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)', fontWeight: 'bold'}} />
+                                            <Line type="monotone" dataKey="mom" name="엄마" stroke="#fb923c" strokeWidth={4} dot={{r: 5, fill: '#fb923c', strokeWidth: 3, stroke: '#fff'}} activeDot={{r: 8}} />
+                                            <Line type="monotone" dataKey="daughter" name="딸" stroke="#f472b6" strokeWidth={4} dot={{r: 5, fill: '#f472b6', strokeWidth: 3, stroke: '#fff'}} activeDot={{r: 8}} />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    <nav className="fixed bottom-6 left-6 right-6 bg-white/95 backdrop-blur-xl h-20 rounded-[32px] shadow-[0_20px_50px_-10px_rgba(0,0,0,0.15)] border border-white/20 flex justify-around items-center px-6 z-50">
+                        {[
+                            { id: 'dashboard', label: '현황' },
+                            { id: 'timer', label: '운동' },
+                            { id: 'logs', label: '기록' }
+                        ].map(t => (
+                            <button key={t.id} onClick={()=>setActiveTab(t.id)} className={`flex flex-col items-center gap-1.5 transition-all duration-300 ${activeTab===t.id?'text-indigo-600 scale-110':'text-gray-300 hover:text-gray-400'}`}>
+                                 <div className={`w-1.5 h-1.5 rounded-full transition-all ${activeTab===t.id?'bg-indigo-600 scale-150':'bg-transparent'}`}></div>
+                                 <span className="text-[11px] font-black uppercase tracking-tighter">{t.label}</span>
+                            </button>
+                        ))}
+                    </nav>
                 </div>
-              </div>
+            );
+        };
 
-              <div className="flex gap-4 justify-center">
-                <button onClick={() => setTimerActive(!timerActive)} className={`w-20 h-20 rounded-full flex items-center justify-center text-white shadow-lg active:scale-90 transition-all ${timerActive ? 'bg-orange-500' : 'bg-indigo-600'}`}>
-                  {timerActive ? <Square fill="currentColor" size={24} /> : <Play fill="currentColor" size={24} className="ml-1" />}
-                </button>
-                <button onClick={() => {setTimerActive(false); setTimeLeft(1800); setCycleTime(300); setIsResting(false); setTotalSecondsElapsed(0);}} className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 active:scale-90 transition-all">
-                  <RotateCcw size={24} />
-                </button>
-              </div>
-            </div>
-            
-            <div className="mt-8 grid grid-cols-2 gap-4 w-full">
-              <div className="bg-white p-5 rounded-3xl shadow-sm text-center">
-                <p className="text-[10px] text-gray-400 mb-1">엄마 소모(예상)</p>
-                <p className="text-xl font-black text-orange-600">{calculateBurnedKcal(userData.mom.weight, totalSecondsElapsed)} <span className="text-xs">kcal</span></p>
-              </div>
-              <div className="bg-white p-5 rounded-3xl shadow-sm text-center">
-                <p className="text-[10px] text-gray-400 mb-1">딸 소모(예상)</p>
-                <p className="text-xl font-black text-pink-600">{calculateBurnedKcal(userData.daughter.weight, totalSecondsElapsed)} <span className="text-xs">kcal</span></p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'logs' && (
-          <div className="space-y-6 animate-in fade-in duration-500">
-            <div className="bg-white p-6 rounded-[32px] shadow-sm">
-              <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-                <Calculator size={20} className="text-indigo-600" /> 오늘의 기록 남기기
-              </h3>
-              <div className="space-y-6">
-                {['mom', 'daughter'].map(key => (
-                  <div key={key} className={key === 'daughter' ? 'border-t pt-4' : ''}>
-                    <label className="text-xs font-bold text-gray-500 block mb-2">{userData[key].name} 몸무게 (kg)</label>
-                    <div className="flex gap-2">
-                      <input id={`${key}-weight-input`} type="number" step="0.1" placeholder="00.0" className="flex-1 bg-gray-50 border-0 rounded-2xl p-4 focus:ring-2 focus:ring-indigo-400 outline-none text-lg font-bold" />
-                      <button onClick={() => {const el = document.getElementById(`${key}-weight-input`); if(el.value){ saveLog(key, el.value); el.value = ''; }}} className={`px-6 rounded-2xl font-bold text-white shadow-md active:scale-95 ${key === 'mom' ? 'bg-orange-500' : 'bg-pink-500'}`}>저장</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-[32px] shadow-sm overflow-hidden">
-              <h3 className="font-bold text-lg mb-4">함께 만드는 그래프</h3>
-              <div className="h-64 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={
-                    Array.from(new Set(rawLogs.map(l => l.date))).map(date => ({
-                      name: date,
-                      mom: rawLogs.find(l => l.date === date && l.userKey === 'mom')?.weight,
-                      daughter: rawLogs.find(l => l.date === date && l.userKey === 'daughter')?.weight,
-                    }))
-                  }>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} />
-                    <YAxis hide domain={['dataMin - 1', 'dataMax + 1']} />
-                    <Tooltip contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
-                    <Legend />
-                    <Line type="monotone" dataKey="mom" name="엄마" stroke="#f97316" strokeWidth={4} dot={{r: 5, fill: '#f97316', strokeWidth: 2, stroke: '#fff'}} activeDot={{r: 8}} />
-                    <Line type="monotone" dataKey="daughter" name="딸" stroke="#ec4899" strokeWidth={4} dot={{r: 5, fill: '#ec4899', strokeWidth: 2, stroke: '#fff'}} activeDot={{r: 8}} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-
-      <nav className="fixed bottom-6 left-6 right-6 bg-white/90 backdrop-blur-xl h-20 rounded-[30px] shadow-2xl border border-white/20 flex items-center justify-around px-6 z-50">
-        {[
-          { id: 'dashboard', icon: Activity, label: '현황' },
-          { id: 'timer', icon: Timer, label: '운동' },
-          { id: 'logs', icon: Calculator, label: '기록' }
-        ].map(tab => (
-          <button 
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex flex-col items-center gap-1 transition-all duration-300 ${activeTab === tab.id ? 'text-indigo-600 scale-110' : 'text-gray-400 hover:text-gray-600'}`}
-          >
-            <tab.icon size={activeTab === tab.id ? 28 : 24} />
-            <span className="text-[10px] font-bold">{tab.label}</span>
-            {activeTab === tab.id && <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full mt-0.5"></div>}
-          </button>
-        ))}
-      </nav>
-    </div>
-  );
-};
-
-export default App;
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
